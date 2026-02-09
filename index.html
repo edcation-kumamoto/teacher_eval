@@ -228,7 +228,7 @@
 ・主語や名前は含めない
 ・「〜であろう」等の推測表現は使わず、断定形で書く
 ・本文のみ、JSON形式: {"suggestions": ["案1", "案2", "案3"]}`;
-                    const res = await callGemini(prompt, "言い換えの専門家として、指示されたJSONのみを出力してください。", true);
+                    const res = await callGemini(prompt, "言い換えの専門家として、指示された JSON のみを出力してください。", true);
                     const parsed = JSON.parse(res);
                     setAiPopup(prev => ({ ...prev, options: parsed.suggestions }));
                 } catch (e) {
@@ -271,7 +271,12 @@
                         <h1 className="text-xl font-black text-blue-600 flex items-center gap-2">
                             <Icon name="sparkles" /> AI教員評価アシスタント
                         </h1>
-                        <button onClick={() => {if(confirm('設定をリセットするよ？')) {localStorage.clear(); location.reload();}}} className="text-xs text-slate-400 hover:text-red-500">設定リセット</button>
+                        <div className="flex gap-4 items-center">
+                            <button onClick={() => setIsApiSet(false)} className="text-xs font-bold text-blue-500 hover:text-blue-700 flex items-center gap-1">
+                                <Icon name="key" size={12} /> APIキー変更
+                            </button>
+                            <button onClick={() => {if(confirm('設定をリセットするよ？今までのデータはすべて消えます。')) {localStorage.clear(); location.reload();}}} className="text-xs text-slate-400 hover:text-red-500">設定リセット</button>
+                        </div>
                     </header>
 
                     <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
