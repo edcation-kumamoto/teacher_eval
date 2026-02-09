@@ -154,19 +154,24 @@
                 
                 const system = `教員評価の専門家として、教員の「${activeCategory}」に関するポジティブな所見を、自然な「だ・である」調で作成してください。
 
-【重要：文体と言い回しのルール】
-1. 文頭に「〇〇先生は」といった主語や名前は絶対に含めない。
-2. 評価の本文から直接書き始めること。
-3. 「〜であろう」「〜と思われる」といった推測表現は一切使わず、「〜している」「〜に取り組んだ」「〜を図った」などの断定・事実表現のみを使う。
-4. 句読点、記号、改行を含めて「180文字以上200文字以内」を厳守する。
-5. 文末に文字数情報を絶対に含めない。本文のみを出力すること。
-${cur.reference ? `6. 「参考」欄に入力された内容のトーンや実績を反映させ、それっぽく作成すること。` : ''}`;
+【厳守：絶対ルール】
+1. 文字数制限：句読点を含めて「必ず160文字以上、200文字以内」に収めること。200文字を1文字でも超えてはならない。
+2. 文体：主語（〇〇先生は等）を省き、評価の本文から書き始める。「〜である」「〜を図った」などの断定表現のみを使い、「〜と思われる」等の推測は禁止。
+3. 出力内容：評価本文のみを出力すること。前置き、解説、挨拶、文字数カウントなどの余計なテキストは一切含めない。
+4. 参考の反映：${cur.reference ? `「参考」欄のトーンを模倣しつつ、上記ルール内で作成すること。` : ''}`;
                 
-                const prompt = `カテゴリ: ${activeCategory}\n目標: ${cur.goal}\n自己評価: ${cur.selfComment}\nキーワード: ${cur.mustInclude}\n追加指示: ${cur.feedback}\n参考資料: ${cur.reference}`;
+                const prompt = `以下の情報を元に、200文字以内の評価文を作成してください。
+カテゴリ: ${activeCategory}
+目標: ${cur.goal}
+自己評価: ${cur.selfComment}
+キーワード: ${cur.mustInclude}
+追加指示: ${cur.feedback}
+参考資料: ${cur.reference}`;
 
                 try {
                     const text = await callGemini(prompt, system);
-                    const cleanText = text.trim().replace(/（?\d+文字）?$/, "").trim();
+                    // AIが余計な文字（「文字数：xxx」など）を付けても削る処理
+                    const cleanText = text.trim().replace(/^[\s\S]*本文：/g, "").replace(/（?\d+文字）?$/g, "").trim();
                     
                     if (selectedId) {
                         setResults(prev => prev.map(r => r.id === selectedId ? {
