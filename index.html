@@ -103,14 +103,19 @@
         };
 
         const App = () => {
-            const [apiKey, setApiKey] = useState('');
-            const [isApiSet, setIsApiSet] = useState(false);
+            // ローカルストレージから初期値を取得
+            const [apiKey, setApiKey] = useState(() => localStorage.getItem('eval_assistant_api_key') || '');
+            const [isApiSet, setIsApiSet] = useState(() => !!localStorage.getItem('eval_assistant_api_key'));
+            const [results, setResults] = useState(() => {
+                const saved = localStorage.getItem('eval_assistant_results');
+                return saved ? JSON.parse(saved) : [];
+            });
+
             const [teacherName, setTeacherName] = useState('');
             const [goal, setGoal] = useState('');
             const [selfComment, setSelfComment] = useState('');
             const [mustInclude, setMustInclude] = useState('');
             const [feedback, setFeedback] = useState('');
-            const [results, setResults] = useState([]); 
             const [selectedTeacherName, setSelectedTeacherName] = useState(null);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
@@ -119,6 +124,11 @@
             const [isAiSuggesting, setIsAiSuggesting] = useState(false);
 
             const editorRef = useRef(null);
+
+            // データの変更を監視してローカルストレージに保存
+            useEffect(() => {
+                localStorage.setItem('eval_assistant_results', JSON.stringify(results));
+            }, [results]);
 
             const currentTeacherData = useMemo(() => 
                 results.find(r => r.name === selectedTeacherName), 
@@ -137,14 +147,22 @@
             const handleApiSubmit = (e) => {
                 e.preventDefault();
                 if (apiKey.trim().length > 10) {
+                    localStorage.setItem('eval_assistant_api_key', apiKey);
                     setIsApiSet(true);
                 } else {
                     setError('有効なAPIキーを入力してください。');
                 }
             };
 
+            const handleLogout = () => {
+                if(!confirm("APIキーの設定を解除しますか？（名簿データは保持されます）")) return;
+                localStorage.removeItem('eval_assistant_api_key');
+                setApiKey('');
+                setIsApiSet(false);
+            };
+
             const handleReset = () => {
-                if(!confirm("入力をリセットしますか？")) return;
+                if(!confirm("現在の入力をリセットしますか？（保存済みの名簿は消えません）")) return;
                 setTeacherName('');
                 setGoal('');
                 setSelfComment('');
@@ -168,28 +186,26 @@
 【厳守：構成ルール】
 ・文章の開始に氏名や役職を含めることは厳禁（いきなり評価から書き出す）。
 ・「〜先生」といった対象への言及も一切不要。
-・語りかけ（「〜ですね」「〜してください」「〜されていますね」等）は一切禁止。
-・第三者視点での客観的な評価文（「〜である」「〜が認められる」「〜に取り組んでいる」）のみで構成せよ。
+・語りかけ（「〜ですね」「〜してください」等）は一切禁止。
+・第三者視点での客観的な評価文のみで構成せよ。
 
-【重要：キーワードの扱い】
-・「必ず含めるキーワード」が指定されている場合、そのキーワードを文章の中で文脈を壊さずに必ず使用すること。
-・指定された言葉そのもの、あるいは極めて近い表現を組み込むことを最優先せよ。
+【最優先：キーワードの組み込み】
+・「必ず含めるキーワード」が指定されている場合、その言葉を文中に絶対に使用して文章を完成させること。
+・キーワードが複数ある場合は、それらすべてを自然な文脈で網羅せよ。
 
 【厳守：文字数ルール】
 ・文字数は「180文字以上、200文字以下」を絶対厳守。
-・200文字を超えそうな場合は、内容を削ってでも200文字以内で完結（句点「。」で終わる）させよ。
+・200文字を超えそうな場合は内容を要約し、必ず句点「。」で終わらせること。
 
-【必須条件】
-・文体：常体（だ・である）。
-・内容：教員の努力を客観的に評価するポジティブなトーン。`;
+【文体】常体（だ・である）。`;
 
                 const userQuery = `
-【対象の目標】：${goal}
-【対象の自己評価】：${selfComment}
+【目標】：${goal}
+【自己評価】：${selfComment}
 ${mustInclude ? `【必ず含めるキーワード】：${mustInclude}` : ''}
 ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
 
-上記に基づき、キーワードを必ず反映させた180〜200文字の客観的な評価文を作成せよ。`;
+上記に基づき、キーワードを必ず反映させた180〜200文字の評価文を作成せよ。`;
 
                 try {
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
@@ -242,7 +258,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                     });
                     setSelectedTeacherName(targetName);
                 } catch (err) {
-                    setError('通信エラーが発生しました。');
+                    setError('通信エラーが発生しました。APIキーが無効かもしれません。');
                 } finally {
                     setLoading(false);
                 }
@@ -331,6 +347,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                 document.body.removeChild(el);
             };
 
+            // APIキー入力画面
             if (!isApiSet) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
@@ -340,7 +357,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                     <Icon name="key" size={32} />
                                 </div>
                                 <h1 className="text-2xl font-black text-slate-800">初期設定</h1>
-                                <p className="text-slate-400 text-sm font-bold mt-2">Gemini APIキーを入力してください</p>
+                                <p className="text-slate-400 text-sm font-bold mt-2 text-center leading-relaxed">Gemini APIキーを入力して<br/>利用を開始してください</p>
                             </div>
                             <form onSubmit={handleApiSubmit} className="space-y-6">
                                 <div>
@@ -359,7 +376,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                 </button>
                             </form>
                             <p className="mt-8 text-[10px] text-slate-300 font-bold leading-relaxed text-center">
-                                ※入力したキーはセッション中のみ保持されます。
+                                ※APIキーはブラウザに安全に保存されます。
                             </p>
                         </div>
                     </div>
@@ -375,8 +392,8 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                 <h1 className="text-xl font-black tracking-tight">AI所見アシスタント</h1>
                             </div>
                             <div className="flex items-center gap-4">
-                                <button onClick={() => setIsApiSet(false)} className="text-xs font-bold opacity-60 hover:opacity-100 flex items-center gap-1">
-                                    <Icon name="settings" size={14} /> 設定
+                                <button onClick={handleLogout} className="text-xs font-bold opacity-60 hover:opacity-100 flex items-center gap-1 bg-blue-700 px-3 py-1.5 rounded-full">
+                                    <Icon name="log-out" size={12} /> キー解除
                                 </button>
                                 <button onClick={handleReset} className="text-xs font-bold hover:underline opacity-80">新規作成</button>
                             </div>
@@ -384,6 +401,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                     </header>
 
                     <main className="flex-1 max-w-[1600px] mx-auto w-full flex flex-col lg:flex-row gap-6 p-4 lg:p-6 overflow-hidden">
+                        {/* 左：入力 */}
                         <div className="w-full lg:w-1/4 space-y-4">
                             <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-blue-100">
                                 <h2 className="text-sm font-black mb-5 flex items-center gap-2 text-blue-700">
@@ -403,12 +421,12 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                         <textarea className="w-full bg-blue-50/50 border-2 border-blue-100 rounded-xl p-3 text-sm focus:border-blue-400 outline-none h-24 resize-none" value={selfComment} onChange={(e) => setSelfComment(e.target.value)} />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-black text-indigo-500 mb-1 block font-black border-l-4 border-indigo-400 pl-2">必ず含めるキーワード</label>
-                                        <input type="text" className="w-full bg-indigo-50 border-2 border-indigo-200 rounded-xl p-3 text-sm focus:border-indigo-400 outline-none font-bold" value={mustInclude} onChange={(e) => setMustInclude(e.target.value)} placeholder="例：ICT活用, 積極性" />
+                                        <label className="text-xs font-black text-indigo-500 mb-1 block font-black border-l-4 border-indigo-400 pl-2 underline decoration-indigo-200">必ず含めるキーワード</label>
+                                        <input type="text" className="w-full bg-indigo-50 border-2 border-indigo-200 rounded-xl p-3 text-sm focus:border-indigo-400 outline-none font-black" value={mustInclude} onChange={(e) => setMustInclude(e.target.value)} placeholder="ICT活用, 授業改善など" />
                                     </div>
                                     <div>
                                         <label className="text-xs font-black text-cyan-600 mb-1 block">修正・追加指示</label>
-                                        <textarea className="w-full bg-cyan-50 border-2 border-cyan-100 rounded-xl p-3 text-sm focus:border-cyan-400 outline-none h-14 resize-none" value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="もっと具体的に、等" />
+                                        <textarea className="w-full bg-cyan-50 border-2 border-cyan-100 rounded-xl p-3 text-sm focus:border-cyan-400 outline-none h-14 resize-none" value={feedback} onChange={(e) => setFeedback(e.target.value)} />
                                     </div>
                                 </div>
                                 {error && <p className="mt-4 text-xs font-bold text-red-500">{error}</p>}
@@ -419,6 +437,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                             </div>
                         </div>
 
+                        {/* 中：メイン */}
                         <div className="flex-1 flex flex-col gap-8 overflow-y-auto custom-scrollbar pb-10">
                             {currentTeacherData ? (
                                 <>
@@ -445,7 +464,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
 
                                         <div className="mt-6 flex justify-end">
                                             <div className="text-right">
-                                                <p className="text-[10px] font-black text-blue-400 uppercase mb-1 tracking-wider">文字数カウント</p>
+                                                <p className="text-[10px] font-black text-blue-400 uppercase mb-1 tracking-wider">文字数</p>
                                                 <p className={`text-xl font-black ${currentTeacherData.currentText.length < 180 || currentTeacherData.currentText.length > 200 ? 'text-red-500' : 'text-blue-600'}`}>
                                                     {currentTeacherData.currentText.length} <span className="text-xs opacity-40">/ 180-200</span>
                                                 </p>
@@ -466,7 +485,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                                     className="text-[10px] font-black text-blue-600 hover:text-blue-800 flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100"
                                                 >
                                                     <Icon name="rotate-ccw" size={10} />
-                                                    この案を再利用
+                                                    再利用
                                                 </button>
                                             </div>
                                             <div className="history-text-area">
@@ -483,6 +502,7 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                             )}
                         </div>
 
+                        {/* 右：名簿 */}
                         <div className="w-full lg:w-64 flex flex-col">
                             <div className="bg-yellow-400 p-5 rounded-[2.5rem] flex-1 flex flex-col overflow-hidden shadow-lg border-t-4 border-yellow-500">
                                 <h2 className="text-sm font-black mb-4 flex items-center gap-2 text-yellow-900 border-b border-yellow-500/30 pb-3 uppercase tracking-widest">
@@ -504,15 +524,19 @@ ${feedback ? `【修正・こだわり指示】：${feedback}` : ''}
                                             </button>
                                         </div>
                                     ))}
+                                    {results.length === 0 && (
+                                        <p className="text-[10px] text-yellow-900/40 text-center font-bold mt-10">名簿はまだありません</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </main>
 
+                    {/* 言い換えメニュー */}
                     {aiPopup && (
                         <div className="ai-menu-popup fixed z-[100] p-2 rounded-2xl w-72 text-blue-900" style={{ top: Math.min(aiPopup.top, window.innerHeight - 250), left: Math.min(aiPopup.left, window.innerWidth - 300) }}>
                             {!aiPopup.options ? (
-                                <button onClick={suggestParaphrase} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-xl font-bold text-sm">
+                                <button onClick={suggestParaphrase} className="w-full flex items-center gap-3 p-3 hover:bg-blue-50 rounded-xl font-bold text-sm transition-all">
                                     {isAiSuggesting ? <Icon name="loader-2" className="animate-spin" size={16} /> : <Icon name="wand-2" size={16} className="text-blue-600" />}
                                     AIによる言い換え提案
                                 </button>
