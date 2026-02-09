@@ -16,7 +16,7 @@
             font-size: 1.1rem;
             line-height: 2;
             padding: 1.5rem;
-            min-height: 250px;
+            min-height: 200px;
             white-space: pre-wrap;
             border-radius: 1rem;
             border: 2px solid #e2e8f0;
@@ -44,6 +44,12 @@
             color: #3b82f6;
             border-bottom-color: #3b82f6;
             background-color: #eff6ff;
+        }
+        .history-card {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            background: #f1f5f9;
+            border-left: 4px solid #cbd5e1;
         }
     </style>
 </head>
@@ -96,6 +102,12 @@
 
             const currentTeacher = useMemo(() => results.find(r => r.id === selectedId), [results, selectedId]);
             const currentContent = useMemo(() => currentTeacher?.contents?.[activeCategory] || '', [currentTeacher, activeCategory]);
+            
+            // 履歴取得用のロジック：同じ先生、同じカテゴリの過去の履歴（最新のものを除く）
+            const history = useMemo(() => {
+                if (!currentTeacher || !currentTeacher.history) return [];
+                return (currentTeacher.history[activeCategory] || []).slice(0, 2);
+            }, [currentTeacher, activeCategory]);
 
             useEffect(() => {
                 if (editorRef.current) {
@@ -170,17 +182,29 @@
 
                 try {
                     const text = await callGemini(prompt, system);
-                    // AIが余計な文字（「文字数：xxx」など）を付けても削る処理
                     const cleanText = text.trim().replace(/^[\s\S]*本文：/g, "").replace(/（?\d+文字）?$/g, "").trim();
                     
                     if (selectedId) {
-                        setResults(prev => prev.map(r => r.id === selectedId ? {
-                            ...r,
-                            name: teacherName || r.name,
-                            contents: { ...r.contents, [activeCategory]: cleanText },
-                            inputData: { ...r.inputData, [activeCategory]: { ...cur } },
-                            timestamp: new Date().toLocaleString('ja-JP')
-                        } : r));
+                        setResults(prev => prev.map(r => {
+                            if (r.id === selectedId) {
+                                // 以前の文言を履歴に追加
+                                const oldContent = r.contents[activeCategory];
+                                const updatedHistory = { ...(r.history || {}) };
+                                if (oldContent && oldContent !== cleanText) {
+                                    updatedHistory[activeCategory] = [oldContent, ...(updatedHistory[activeCategory] || [])].slice(0, 5);
+                                }
+                                
+                                return {
+                                    ...r,
+                                    name: teacherName || r.name,
+                                    contents: { ...r.contents, [activeCategory]: cleanText },
+                                    inputData: { ...r.inputData, [activeCategory]: { ...cur } },
+                                    history: updatedHistory,
+                                    timestamp: new Date().toLocaleString('ja-JP')
+                                };
+                            }
+                            return r;
+                        }));
                     } else {
                         const newId = Date.now().toString();
                         const newResult = {
@@ -188,6 +212,7 @@
                             name: teacherName || '未設定',
                             contents: { '教科指導': '', '生活指導': '', '公務': '', [activeCategory]: cleanText },
                             inputData: { ...inputState, [activeCategory]: { ...cur } },
+                            history: { [activeCategory]: [] },
                             timestamp: new Date().toLocaleString('ja-JP')
                         };
                         setResults(prev => [newResult, ...prev]);
@@ -242,10 +267,23 @@
             const applySuggestion = (newText) => {
                 const fullText = editorRef.current.innerText;
                 const updatedText = fullText.replace(aiPopup.text, newText);
-                setResults(prev => prev.map(r => r.id === selectedId ? {
-                    ...r,
-                    contents: { ...r.contents, [activeCategory]: updatedText }
-                } : r));
+                
+                setResults(prev => prev.map(r => {
+                    if (r.id === selectedId) {
+                        // 編集による変更も履歴に残す（必要に応じて）
+                        const oldContent = r.contents[activeCategory];
+                        const updatedHistory = { ...(r.history || {}) };
+                        if (oldContent && oldContent !== updatedText) {
+                            updatedHistory[activeCategory] = [oldContent, ...(updatedHistory[activeCategory] || [])].slice(0, 5);
+                        }
+                        return {
+                            ...r,
+                            contents: { ...r.contents, [activeCategory]: updatedText },
+                            history: updatedHistory
+                        };
+                    }
+                    return r;
+                }));
                 setAiPopup(null);
             };
 
@@ -406,6 +444,39 @@
                                                 <span className="text-slate-400"> / 200</span>
                                             </div>
                                         </div>
+
+                                        {/* 比較・履歴セクション */}
+                                        {history.length > 0 && (
+                                            <div className="mt-6 pt-6 border-t border-slate-100 flex-shrink-0 overflow-hidden flex flex-col max-h-[250px]">
+                                                <h4 className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-widest flex items-center gap-2">
+                                                    <Icon name="history" size={12} /> 履歴（前回・前々回の文言）
+                                                </h4>
+                                                <div className="overflow-y-auto custom-scrollbar space-y-3 pb-2">
+                                                    {history.map((text, idx) => (
+                                                        <div key={idx} className="history-card p-3 rounded-xl border border-slate-200 group relative">
+                                                            <div className="text-[9px] text-slate-400 mb-1 font-bold">
+                                                                {idx === 0 ? '前回' : '前々回'} の生成内容
+                                                            </div>
+                                                            <div className="text-slate-600 whitespace-pre-wrap">{text}</div>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    if(confirm('この文言を現在のエディタに復元する？')) {
+                                                                        editorRef.current.innerText = text;
+                                                                        setResults(prev => prev.map(r => r.id === selectedId ? {
+                                                                            ...r, contents: { ...r.contents, [activeCategory]: text }
+                                                                        } : r));
+                                                                    }
+                                                                }}
+                                                                className="absolute top-2 right-2 p-1.5 bg-white shadow-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:text-blue-600"
+                                                                title="復元する"
+                                                            >
+                                                                <Icon name="copy" size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-300 font-bold text-center">
