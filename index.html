@@ -97,16 +97,27 @@
             };
 
             const callGemini = async (prompt, systemInstruction = "", isJson = false) => {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }]
+                };
+                if (systemInstruction) {
+                    payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+                }
+                if (isJson) {
+                    payload.generationConfig = { responseMimeType: "application/json" };
+                }
+
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
-                        generationConfig: isJson ? { responseMimeType: "application/json" } : undefined
-                    })
+                    body: JSON.stringify(payload)
                 });
-                if (!response.ok) throw new Error('API Error');
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || 'API Error');
+                }
                 const data = await response.json();
                 return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
             };
@@ -119,8 +130,8 @@
                 setLoading(true);
                 setError('');
                 
-                const system = `教員評価の専門家として、ポジティブな所見を「だ・である」調で作成してください。180〜200文字厳守。`;
-                const prompt = `名前: ${teacherName}\n目標: ${goal}\n自己評価: ${selfComment}\nキーワード: ${mustInclude}\n指示: ${feedback}`;
+                const system = `教員評価の専門家として、ポジティブな所見を「だ・である」調で作成してください。180〜200文字を厳守してください。`;
+                const prompt = `名前: ${teacherName}\n年度の目標: ${goal}\n本人の自己評価: ${selfComment}\n必ず含めるキーワード: ${mustInclude}\n指示: ${feedback}`;
 
                 try {
                     const text = await callGemini(prompt, system);
@@ -135,7 +146,8 @@
                     setResults(prev => [newResult, ...prev]);
                     setSelectedId(newId);
                 } catch (err) {
-                    setError('生成に失敗したよ。APIキーを確認してね。');
+                    console.error(err);
+                    setError('生成に失敗したよ。APIキーが正しいか確認してね！');
                 } finally {
                     setLoading(false);
                 }
@@ -143,7 +155,7 @@
 
             const deleteEntry = (e, id, name) => {
                 e.stopPropagation();
-                if (window.confirm(`${name}先生のデータを削除しても本当によろしいですか？`)) {
+                if (window.confirm(`${name}先生のデータを削除しても本当にいいかな？`)) {
                     setResults(prev => prev.filter(r => r.id !== id));
                     if (selectedId === id) setSelectedId(null);
                 }
@@ -153,7 +165,8 @@
                 const selection = window.getSelection();
                 const text = selection.toString().trim();
                 if (text) {
-                    const rect = selection.getRangeAt(0).getBoundingClientRect();
+                    const range = selection.getRangeAt(0);
+                    const rect = range.getBoundingClientRect();
                     setAiPopup({ text, top: rect.bottom + window.scrollY, left: rect.left + window.scrollX });
                 }
             };
@@ -161,11 +174,13 @@
             const getSuggestions = async () => {
                 setIsAiSuggesting(true);
                 try {
-                    const prompt = `「${aiPopup.text}」をポジティブな「だ・である」調で3パターン言い換えて。JSON形式: {"suggestions": ["案1", "案2", "案3"]}`;
+                    const prompt = `「${aiPopup.text}」をポジティブな「だ・である」調で、意味を損なわずに3パターン言い換えて。JSON形式: {"suggestions": ["案1", "案2", "案3"]}`;
                     const res = await callGemini(prompt, "", true);
-                    const { suggestions } = JSON.parse(res);
-                    setAiPopup(prev => ({ ...prev, options: suggestions }));
+                    const parsed = JSON.parse(res);
+                    setAiPopup(prev => ({ ...prev, options: parsed.suggestions }));
                 } catch (e) {
+                    console.error(e);
+                    setError('言い換えに失敗したよ。');
                     setAiPopup(null);
                 } finally {
                     setIsAiSuggesting(false);
@@ -196,45 +211,49 @@
                 <div className="min-h-screen flex flex-col max-w-[1400px] mx-auto p-4 lg:p-6 gap-6">
                     <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm">
                         <h1 className="text-xl font-black text-blue-600 flex items-center gap-2">
-                            <Icon name="sparkles" /> AI教員評価
+                            <Icon name="sparkles" /> AI教員評価アシスタント
                         </h1>
-                        <button onClick={() => {localStorage.clear(); location.reload();}} className="text-xs text-slate-400">初期化</button>
+                        <button onClick={() => {if(confirm('初期化するよ？')) {localStorage.clear(); location.reload();}}} className="text-xs text-slate-400 hover:text-red-500">設定リセット</button>
                     </header>
 
                     <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
-                        {/* 入力欄 */}
+                        {/* 左：入力エリア */}
                         <div className="w-full lg:w-80 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 block mb-1">先生の名前</label>
-                                    <input value={teacherName} onChange={e => setTeacherName(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border focus:border-blue-500 outline-none text-sm" />
+                                    <input value={teacherName} onChange={e => setTeacherName(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border focus:border-blue-500 outline-none text-sm" placeholder="山田太郎" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">目標</label>
-                                    <textarea value={goal} onChange={e => setGoal(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-20 text-sm" />
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">本年度の目標</label>
+                                    <textarea value={goal} onChange={e => setGoal(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-20 text-sm resize-none" placeholder="ICT活用による効率化" />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">自己評価</label>
-                                    <textarea value={selfComment} onChange={e => setSelfComment(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-24 text-sm" />
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">本人の自己評価</label>
+                                    <textarea value={selfComment} onChange={e => setSelfComment(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-24 text-sm resize-none" placeholder="授業での活用を定着させた" />
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-slate-400 block mb-1">追加キーワード</label>
-                                    <input value={mustInclude} onChange={e => setMustInclude(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border text-sm" />
+                                    <input value={mustInclude} onChange={e => setMustInclude(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border text-sm" placeholder="柔軟な対応" />
                                 </div>
-                                <button onClick={generateEval} disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
+                                <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">追加指示（雰囲気など）</label>
+                                    <input value={feedback} onChange={e => setFeedback(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border text-sm" placeholder="もう少し情熱的に" />
+                                </div>
+                                <button onClick={generateEval} disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg">
                                     {loading ? <Icon name="loader-2" className="animate-spin" /> : <Icon name="wand-2" />}
-                                    作成する
+                                    案を作成する
                                 </button>
-                                {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+                                {error && <p className="text-xs text-red-500 text-center font-bold">{error}</p>}
                             </div>
                         </div>
 
-                        {/* メイン編集エリア */}
+                        {/* 中：プレビュー・編集 */}
                         <div className="flex-1 flex flex-col gap-4">
                             {currentData ? (
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 flex-1 flex flex-col">
-                                    <div className="flex justify-between mb-4">
-                                        <h2 className="font-bold text-lg text-slate-700">{currentData.name} 先生の案</h2>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="font-bold text-lg text-slate-700">{currentData.name} 先生の所見案</h2>
                                         <span className="text-xs text-slate-400">{currentData.timestamp}</span>
                                     </div>
                                     <div 
@@ -246,64 +265,80 @@
                                             const txt = e.target.innerText;
                                             setResults(prev => prev.map(r => r.id === selectedId ? {...r, currentText: txt} : r));
                                         }}
+                                        suppressContentEditableWarning={true}
                                     />
-                                    <div className="mt-4 text-right text-xs font-bold text-slate-400">
-                                        文字数: <span className={currentData.currentText.length > 200 ? 'text-red-500' : 'text-blue-600'}>{currentData.currentText.length}</span> / 200
+                                    <div className="mt-4 flex justify-between items-center">
+                                        <p className="text-[10px] text-slate-400">テキストを選択するとAIで言い換えができます</p>
+                                        <div className="text-xs font-bold text-slate-400">
+                                            文字数: <span className={currentData.currentText.length > 200 ? 'text-red-500 font-black' : 'text-blue-600'}>{currentData.currentText.length}</span> / 200
+                                        </div>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="flex-1 flex items-center justify-center border-4 border-dashed rounded-3xl text-slate-300 font-bold">
-                                    左から入力して案を作成してね
+                                <div className="flex-1 flex flex-col items-center justify-center border-4 border-dashed rounded-3xl text-slate-300 font-bold bg-white/50">
+                                    <Icon name="file-plus" size={48} className="mb-4 opacity-20" />
+                                    左のフォームを入力して案を作成しよう！
                                 </div>
                             )}
                         </div>
 
-                        {/* 履歴リスト */}
-                        <div className="w-full lg:w-64 bg-yellow-400 p-4 rounded-3xl shadow-lg flex flex-col">
+                        {/* 右：保存済みリスト */}
+                        <div className="w-full lg:w-64 bg-yellow-400 p-4 rounded-3xl shadow-lg flex flex-col border-t-4 border-yellow-500">
                             <h3 className="text-sm font-black text-yellow-900 mb-4 flex items-center gap-2 uppercase">
-                                <Icon name="users" size={16} /> 保存済み
+                                <Icon name="users" size={16} /> 保存済みの先生
                             </h3>
                             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
                                 {results.map(res => (
                                     <div 
                                         key={res.id} 
-                                        onClick={() => setSelectedId(res.id)}
-                                        className={`sidebar-item p-3 rounded-xl flex items-center justify-between bg-yellow-50 shadow-sm ${selectedId === res.id ? 'active' : 'hover:bg-yellow-200'}`}
+                                        onClick={() => {
+                                            setSelectedId(res.id);
+                                            setTeacherName(res.inputData.teacherName);
+                                            setGoal(res.inputData.goal);
+                                            setSelfComment(res.inputData.selfComment);
+                                            setMustInclude(res.inputData.mustInclude);
+                                            setFeedback(res.inputData.feedback);
+                                        }}
+                                        className={`sidebar-item p-3 rounded-xl flex items-center justify-between bg-white shadow-sm border-b-2 border-yellow-500/20 ${selectedId === res.id ? 'active' : 'hover:bg-yellow-50'}`}
                                     >
-                                        <span className="text-sm font-bold truncate flex-1">{res.name}</span>
+                                        <span className="text-sm font-bold truncate flex-1">{res.name} 先生</span>
                                         <button 
                                             onClick={(e) => deleteEntry(e, res.id, res.name)}
-                                            className="p-1 hover:bg-red-500 hover:text-white rounded-md transition-colors ml-2"
+                                            className={`p-1 rounded-md transition-colors ml-2 ${selectedId === res.id ? 'hover:bg-red-700 text-white' : 'text-yellow-700 hover:bg-red-500 hover:text-white'}`}
+                                            title="削除"
                                         >
                                             <Icon name="x" size={14} />
                                         </button>
                                     </div>
                                 ))}
+                                {results.length === 0 && <p className="text-[10px] text-yellow-900/50 text-center mt-4">履歴はありません</p>}
                             </div>
                         </div>
                     </div>
 
-                    {/* AI修正ポップアップ */}
+                    {/* AI修正メニュー（ポップアップ） */}
                     {aiPopup && (
-                        <div className="ai-menu-popup fixed p-2 w-64 shadow-2xl" style={{ top: aiPopup.top + 10, left: aiPopup.left }}>
+                        <div className="ai-menu-popup fixed p-2 w-72 shadow-2xl" style={{ top: aiPopup.top + 10, left: aiPopup.left }}>
                             {!aiPopup.options ? (
                                 <button 
                                     onClick={getSuggestions} 
                                     disabled={isAiSuggesting}
-                                    className="w-full p-3 flex items-center gap-2 hover:bg-blue-50 text-blue-600 rounded-lg font-bold text-sm"
+                                    className={`w-full p-3 flex items-center justify-center gap-2 rounded-lg font-bold text-sm transition-all ${isAiSuggesting ? 'bg-slate-100 text-slate-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'}`}
                                 >
                                     {isAiSuggesting ? <Icon name="loader-2" className="animate-spin" size={14}/> : <Icon name="sparkles" size={14}/>}
                                     {isAiSuggesting ? 'AIが考え中...' : 'AIで言い換える'}
                                 </button>
                             ) : (
                                 <div className="space-y-1">
-                                    <div className="text-[9px] text-slate-400 p-2 font-bold border-b mb-1">言い換え案</div>
+                                    <div className="text-[9px] text-slate-400 p-2 font-bold border-b mb-1 flex justify-between items-center">
+                                        <span>AIの言い換え提案</span>
+                                        <button onClick={() => setAiPopup(null)} className="hover:text-red-500"><Icon name="x" size={10}/></button>
+                                    </div>
                                     {aiPopup.options.map((opt, i) => (
-                                        <button key={i} onClick={() => applySuggestion(opt)} className="w-full text-left p-2 hover:bg-blue-600 hover:text-white rounded-lg text-[11px] font-medium leading-relaxed transition-colors">
+                                        <button key={i} onClick={() => applySuggestion(opt)} className="w-full text-left p-2.5 hover:bg-blue-600 hover:text-white rounded-lg text-[11px] font-medium leading-relaxed transition-colors border border-transparent hover:border-blue-700">
                                             {opt}
                                         </button>
                                     ))}
-                                    <button onClick={() => setAiPopup(null)} className="w-full text-center p-1 text-[10px] text-slate-400 hover:text-slate-600">閉じる</button>
                                 </div>
                             )}
                         </div>
