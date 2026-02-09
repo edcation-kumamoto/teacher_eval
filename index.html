@@ -93,6 +93,7 @@
             const [error, setError] = useState('');
             const [aiPopup, setAiPopup] = useState(null);
             const [isAiSuggesting, setIsAiSuggesting] = useState(false);
+            const [copyFeedback, setCopyFeedback] = useState(false);
 
             const editorRef = useRef(null);
 
@@ -103,7 +104,6 @@
             const currentTeacher = useMemo(() => results.find(r => r.id === selectedId), [results, selectedId]);
             const currentContent = useMemo(() => currentTeacher?.contents?.[activeCategory] || '', [currentTeacher, activeCategory]);
             
-            // 履歴取得用のロジック：同じ先生、同じカテゴリの過去の履歴（最新のものを除く）
             const history = useMemo(() => {
                 if (!currentTeacher || !currentTeacher.history) return [];
                 return (currentTeacher.history[activeCategory] || []).slice(0, 2);
@@ -127,6 +127,24 @@
                 setSelectedId(null);
                 setTeacherName('');
                 setInputState(INITIAL_INPUT_STATE);
+            };
+
+            const handleCopy = () => {
+                const text = editorRef.current?.innerText || "";
+                if (!text) return;
+                
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    setCopyFeedback(true);
+                    setTimeout(() => setCopyFeedback(false), 2000);
+                } catch (err) {
+                    console.error('Copy failed', err);
+                }
+                document.body.removeChild(textArea);
             };
 
             const callGemini = async (prompt, systemInstruction = "", isJson = false) => {
@@ -187,7 +205,6 @@
                     if (selectedId) {
                         setResults(prev => prev.map(r => {
                             if (r.id === selectedId) {
-                                // 以前の文言を履歴に追加
                                 const oldContent = r.contents[activeCategory];
                                 const updatedHistory = { ...(r.history || {}) };
                                 if (oldContent && oldContent !== cleanText) {
@@ -270,7 +287,6 @@
                 
                 setResults(prev => prev.map(r => {
                     if (r.id === selectedId) {
-                        // 編集による変更も履歴に残す（必要に応じて）
                         const oldContent = r.contents[activeCategory];
                         const updatedHistory = { ...(r.history || {}) };
                         if (oldContent && oldContent !== updatedText) {
@@ -434,15 +450,23 @@
                                             }}
                                             suppressContentEditableWarning={true}
                                         />
-                                        <div className="mt-4 flex justify-between items-center flex-shrink-0 bg-slate-50 p-3 rounded-xl border">
-                                            <p className="text-[10px] text-slate-400 flex items-center gap-1">
-                                                <Icon name="info" size={12}/> 文字を選択してAIで言い換え
-                                            </p>
-                                            <div className="text-xs font-bold">
-                                                <span className="text-slate-400">文字数(句読点込): </span>
-                                                <span className={charCount > 200 ? 'text-red-500 font-black px-2 py-0.5 bg-red-50 rounded' : 'text-blue-600'}>{charCount}</span>
-                                                <span className="text-slate-400"> / 200</span>
+                                        <div className="mt-4 flex justify-between items-center flex-shrink-0 bg-slate-50 p-2 pl-4 rounded-xl border">
+                                            <div className="flex items-center gap-4">
+                                                <div className="text-xs font-bold">
+                                                    <span className="text-slate-400">文字数(句読点込): </span>
+                                                    <span className={charCount > 200 ? 'text-red-500 font-black px-2 py-0.5 bg-red-50 rounded' : 'text-blue-600'}>{charCount}</span>
+                                                    <span className="text-slate-400"> / 200</span>
+                                                </div>
                                             </div>
+                                            
+                                            {/* 最新のコピーボタン */}
+                                            <button 
+                                                onClick={handleCopy}
+                                                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-sm ${copyFeedback ? 'bg-green-500 text-white' : 'bg-white text-blue-600 hover:bg-blue-50 border border-blue-100'}`}
+                                            >
+                                                <Icon name={copyFeedback ? "check" : "copy"} size={14} />
+                                                {copyFeedback ? "コピーしました！" : "最新をコピー"}
+                                            </button>
                                         </div>
 
                                         {/* 比較・履歴セクション */}
@@ -470,7 +494,7 @@
                                                                 className="absolute top-2 right-2 p-1.5 bg-white shadow-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:text-blue-600"
                                                                 title="復元する"
                                                             >
-                                                                <Icon name="copy" size={12} />
+                                                                <Icon name="rotate-ccw" size={12} />
                                                             </button>
                                                         </div>
                                                     ))}
