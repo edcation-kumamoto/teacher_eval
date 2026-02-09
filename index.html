@@ -8,6 +8,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@lucide/lab@latest"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap');
@@ -94,6 +95,8 @@
             const [aiPopup, setAiPopup] = useState(null);
             const [isAiSuggesting, setIsAiSuggesting] = useState(false);
             const [copyFeedback, setCopyFeedback] = useState(false);
+            // リアルタイム表示用の文字数State
+            const [currentCharCount, setCurrentCharCount] = useState(0);
 
             const editorRef = useRef(null);
 
@@ -109,11 +112,13 @@
                 return (currentTeacher.history[activeCategory] || []).slice(0, 2);
             }, [currentTeacher, activeCategory]);
 
+            // カテゴリ切り替えや先生選択時にエディタの内容を同期する
             useEffect(() => {
                 if (editorRef.current) {
                     editorRef.current.innerText = currentContent;
+                    setCurrentCharCount(currentContent.length);
                 }
-            }, [selectedId, activeCategory, currentContent]);
+            }, [selectedId, activeCategory]);
 
             const handleApiSubmit = (e) => {
                 e.preventDefault();
@@ -127,6 +132,7 @@
                 setSelectedId(null);
                 setTeacherName('');
                 setInputState(INITIAL_INPUT_STATE);
+                setCurrentCharCount(0);
             };
 
             const handleCopy = () => {
@@ -145,6 +151,23 @@
                     console.error('Copy failed', err);
                 }
                 document.body.removeChild(textArea);
+            };
+
+            // フォーカスが外れた時だけStateに保存する（カーソル飛び防止の核）
+            const handleEditorBlur = () => {
+                if (!selectedId) return;
+                const txt = editorRef.current.innerText;
+                if (txt === currentContent) return; // 変更がなければ何もしない
+
+                setResults(prev => prev.map(r => r.id === selectedId ? {
+                    ...r, 
+                    contents: { ...r.contents, [activeCategory]: txt }
+                } : r));
+            };
+
+            // 入力中の文字数だけカウントする（再レンダリングを発生させない）
+            const handleEditorInput = (e) => {
+                setCurrentCharCount(e.target.innerText.length);
             };
 
             const callGemini = async (prompt, systemInstruction = "", isJson = false) => {
@@ -235,6 +258,7 @@
                         setResults(prev => [newResult, ...prev]);
                         setSelectedId(newId);
                     }
+                    setCurrentCharCount(cleanText.length);
                 } catch (err) {
                     setError('生成に失敗したよ。');
                 } finally {
@@ -285,6 +309,7 @@
                 const fullText = editorRef.current.innerText;
                 const updatedText = fullText.replace(aiPopup.text, newText);
                 
+                // 言い換え適用時は即座に保存
                 setResults(prev => prev.map(r => {
                     if (r.id === selectedId) {
                         const oldContent = r.contents[activeCategory];
@@ -300,10 +325,11 @@
                     }
                     return r;
                 }));
+                // 直接エディタの中身も書き換える
+                editorRef.current.innerText = updatedText;
+                setCurrentCharCount(updatedText.length);
                 setAiPopup(null);
             };
-
-            const charCount = currentContent.length;
 
             if (!isApiSet) {
                 return (
@@ -441,20 +467,15 @@
                                             className="eval-text-area flex-1 overflow-y-auto custom-scrollbar shadow-inner"
                                             contentEditable
                                             onMouseUp={handleSelection}
-                                            onInput={e => {
-                                                const txt = e.target.innerText;
-                                                setResults(prev => prev.map(r => r.id === selectedId ? {
-                                                    ...r, 
-                                                    contents: { ...r.contents, [activeCategory]: txt }
-                                                } : r));
-                                            }}
+                                            onInput={handleEditorInput}
+                                            onBlur={handleEditorBlur}
                                             suppressContentEditableWarning={true}
                                         />
                                         <div className="mt-4 flex justify-between items-center flex-shrink-0 bg-slate-50 p-2 pl-4 rounded-xl border">
                                             <div className="flex items-center gap-4">
                                                 <div className="text-xs font-bold">
                                                     <span className="text-slate-400">文字数(句読点込): </span>
-                                                    <span className={charCount > 200 ? 'text-red-500 font-black px-2 py-0.5 bg-red-50 rounded' : 'text-blue-600'}>{charCount}</span>
+                                                    <span className={currentCharCount > 200 ? 'text-red-500 font-black px-2 py-0.5 bg-red-50 rounded' : 'text-blue-600'}>{currentCharCount}</span>
                                                     <span className="text-slate-400"> / 200</span>
                                                 </div>
                                             </div>
@@ -486,6 +507,7 @@
                                                                 onClick={() => {
                                                                     if(confirm('この文言を現在のエディタに復元する？')) {
                                                                         editorRef.current.innerText = text;
+                                                                        setCurrentCharCount(text.length);
                                                                         setResults(prev => prev.map(r => r.id === selectedId ? {
                                                                             ...r, contents: { ...r.contents, [activeCategory]: text }
                                                                         } : r));
