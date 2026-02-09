@@ -16,7 +16,7 @@
             font-size: 1.1rem;
             line-height: 2;
             padding: 1.5rem;
-            min-height: 200px;
+            min-height: 250px;
             white-space: pre-wrap;
             border-radius: 1rem;
             border: 2px solid #e2e8f0;
@@ -36,6 +36,15 @@
             border-radius: 1rem;
             z-index: 1000;
         }
+        .tab-btn {
+            transition: all 0.2s;
+            border-bottom: 3px solid transparent;
+        }
+        .tab-btn.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+            background-color: #eff6ff;
+        }
     </style>
 </head>
 <body>
@@ -47,6 +56,8 @@
             const iconRef = useRef(null);
             useEffect(() => {
                 if (iconRef.current && lucide.icons[name]) {
+                    const el = iconRef.current;
+                    el.innerHTML = '';
                     lucide.createIcons({
                         icons: { [name]: lucide.icons[name] },
                         nameAttr: 'data-lucide',
@@ -60,12 +71,17 @@
         const App = () => {
             const [apiKey, setApiKey] = useState(() => localStorage.getItem('eval_api_key') || '');
             const [isApiSet, setIsApiSet] = useState(() => !!localStorage.getItem('eval_api_key'));
-            const [results, setResults] = useState(() => JSON.parse(localStorage.getItem('eval_results') || '[]'));
+            const [results, setResults] = useState(() => JSON.parse(localStorage.getItem('eval_results_v10') || '[]'));
+            
             const [teacherName, setTeacherName] = useState('');
-            const [goal, setGoal] = useState('');
-            const [selfComment, setSelfComment] = useState('');
-            const [mustInclude, setMustInclude] = useState('');
-            const [feedback, setFeedback] = useState('');
+            const [activeCategory, setActiveCategory] = useState('教科指導');
+            const INITIAL_INPUT_STATE = {
+                '教科指導': { goal: '', selfComment: '', mustInclude: '', feedback: '', reference: '' },
+                '生活指導': { goal: '', selfComment: '', mustInclude: '', feedback: '', reference: '' },
+                '公務': { goal: '', selfComment: '', mustInclude: '', feedback: '', reference: '' }
+            };
+            const [inputState, setInputState] = useState(INITIAL_INPUT_STATE);
+            
             const [selectedId, setSelectedId] = useState(null);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
@@ -75,18 +91,17 @@
             const editorRef = useRef(null);
 
             useEffect(() => {
-                localStorage.setItem('eval_results', JSON.stringify(results));
+                localStorage.setItem('eval_results_v10', JSON.stringify(results));
             }, [results]);
 
-            const currentData = useMemo(() => results.find(r => r.id === selectedId), [results, selectedId]);
+            const currentTeacher = useMemo(() => results.find(r => r.id === selectedId), [results, selectedId]);
+            const currentContent = useMemo(() => currentTeacher?.contents?.[activeCategory] || '', [currentTeacher, activeCategory]);
 
             useEffect(() => {
-                if (editorRef.current && currentData) {
-                    if (editorRef.current.innerText !== currentData.currentText) {
-                        editorRef.current.innerText = currentData.currentText;
-                    }
+                if (editorRef.current) {
+                    editorRef.current.innerText = currentContent;
                 }
-            }, [selectedId, currentData?.currentText]);
+            }, [selectedId, activeCategory, currentContent]);
 
             const handleApiSubmit = (e) => {
                 e.preventDefault();
@@ -94,6 +109,12 @@
                     localStorage.setItem('eval_api_key', apiKey);
                     setIsApiSet(true);
                 }
+            };
+
+            const resetToInitial = () => {
+                setSelectedId(null);
+                setTeacherName('');
+                setInputState(INITIAL_INPUT_STATE);
             };
 
             const callGemini = async (prompt, systemInstruction = "", isJson = false) => {
@@ -123,31 +144,52 @@
             };
 
             const generateEval = async () => {
-                if (!goal || !selfComment) {
-                    setError('目標と自己評価は入れてね！');
+                const cur = inputState[activeCategory];
+                if (!cur.goal || !cur.selfComment) {
+                    setError(`${activeCategory}の目標と自己評価を入力してね。`);
                     return;
                 }
                 setLoading(true);
                 setError('');
                 
-                const system = `教員評価の専門家として、ポジティブな所見を「だ・である」調で作成してください。180〜200文字を厳守してください。`;
-                const prompt = `名前: ${teacherName}\n年度の目標: ${goal}\n本人の自己評価: ${selfComment}\n必ず含めるキーワード: ${mustInclude}\n指示: ${feedback}`;
+                const system = `教員評価の専門家として、教員の「${activeCategory}」に関するポジティブな所見を、自然な「だ・である」調で作成してください。
+
+【重要：文体と言い回しのルール】
+1. 文頭に「〇〇先生は」といった主語や名前は絶対に含めない。
+2. 評価の本文から直接書き始めること。
+3. 「〜であろう」「〜と思われる」といった推測表現は一切使わず、「〜している」「〜に取り組んだ」「〜を図った」などの断定・事実表現のみを使う。
+4. 句読点、記号、改行を含めて「180文字以上200文字以内」を厳守する。
+5. 文末に文字数情報を絶対に含めない。本文のみを出力すること。
+${cur.reference ? `6. 「参考」欄に入力された内容のトーンや実績を反映させ、それっぽく作成すること。` : ''}`;
+                
+                const prompt = `カテゴリ: ${activeCategory}\n目標: ${cur.goal}\n自己評価: ${cur.selfComment}\nキーワード: ${cur.mustInclude}\n追加指示: ${cur.feedback}\n参考資料: ${cur.reference}`;
 
                 try {
                     const text = await callGemini(prompt, system);
-                    const newId = Date.now().toString();
-                    const newResult = {
-                        id: newId,
-                        name: teacherName || '未設定',
-                        currentText: text.trim(),
-                        timestamp: new Date().toLocaleString('ja-JP'),
-                        inputData: { teacherName, goal, selfComment, mustInclude, feedback }
-                    };
-                    setResults(prev => [newResult, ...prev]);
-                    setSelectedId(newId);
+                    const cleanText = text.trim().replace(/（?\d+文字）?$/, "").trim();
+                    
+                    if (selectedId) {
+                        setResults(prev => prev.map(r => r.id === selectedId ? {
+                            ...r,
+                            name: teacherName || r.name,
+                            contents: { ...r.contents, [activeCategory]: cleanText },
+                            inputData: { ...r.inputData, [activeCategory]: { ...cur } },
+                            timestamp: new Date().toLocaleString('ja-JP')
+                        } : r));
+                    } else {
+                        const newId = Date.now().toString();
+                        const newResult = {
+                            id: newId,
+                            name: teacherName || '未設定',
+                            contents: { '教科指導': '', '生活指導': '', '公務': '', [activeCategory]: cleanText },
+                            inputData: { ...inputState, [activeCategory]: { ...cur } },
+                            timestamp: new Date().toLocaleString('ja-JP')
+                        };
+                        setResults(prev => [newResult, ...prev]);
+                        setSelectedId(newId);
+                    }
                 } catch (err) {
-                    console.error(err);
-                    setError('生成に失敗したよ。APIキーが正しいか確認してね！');
+                    setError('生成に失敗したよ。');
                 } finally {
                     setLoading(false);
                 }
@@ -155,31 +197,36 @@
 
             const deleteEntry = (e, id, name) => {
                 e.stopPropagation();
-                if (window.confirm(`${name}先生のデータを削除しても本当にいいかな？`)) {
+                if (window.confirm(`${name}先生のデータを削除するよ？`)) {
                     setResults(prev => prev.filter(r => r.id !== id));
-                    if (selectedId === id) setSelectedId(null);
+                    resetToInitial();
                 }
             };
 
             const handleSelection = () => {
                 const selection = window.getSelection();
                 const text = selection.toString().trim();
-                if (text) {
+                if (text && editorRef.current && editorRef.current.contains(selection.anchorNode)) {
                     const range = selection.getRangeAt(0);
                     const rect = range.getBoundingClientRect();
                     setAiPopup({ text, top: rect.bottom + window.scrollY, left: rect.left + window.scrollX });
+                } else {
+                    setAiPopup(null);
                 }
             };
 
             const getSuggestions = async () => {
                 setIsAiSuggesting(true);
                 try {
-                    const prompt = `「${aiPopup.text}」をポジティブな「だ・である」調で、意味を損なわずに3パターン言い換えて。JSON形式: {"suggestions": ["案1", "案2", "案3"]}`;
-                    const res = await callGemini(prompt, "", true);
+                    const prompt = `「${aiPopup.text}」を「${activeCategory}」の文脈で、自然な「だ・である」調で3パターン言い換えて。
+条件：
+・主語や名前は含めない
+・「〜であろう」等の推測表現は使わず、断定形で書く
+・本文のみ、JSON形式: {"suggestions": ["案1", "案2", "案3"]}`;
+                    const res = await callGemini(prompt, "言い換えの専門家として、指示されたJSONのみを出力してください。", true);
                     const parsed = JSON.parse(res);
                     setAiPopup(prev => ({ ...prev, options: parsed.suggestions }));
                 } catch (e) {
-                    console.error(e);
                     setError('言い換えに失敗したよ。');
                     setAiPopup(null);
                 } finally {
@@ -188,19 +235,25 @@
             };
 
             const applySuggestion = (newText) => {
-                const updatedText = currentData.currentText.replace(aiPopup.text, newText);
-                setResults(prev => prev.map(r => r.id === selectedId ? { ...r, currentText: updatedText } : r));
+                const fullText = editorRef.current.innerText;
+                const updatedText = fullText.replace(aiPopup.text, newText);
+                setResults(prev => prev.map(r => r.id === selectedId ? {
+                    ...r,
+                    contents: { ...r.contents, [activeCategory]: updatedText }
+                } : r));
                 setAiPopup(null);
             };
 
+            const charCount = currentContent.length;
+
             if (!isApiSet) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full">
-                            <h2 className="text-xl font-bold mb-4 text-center">Gemini APIキーを設定</h2>
+                    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+                        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full border border-slate-200">
+                            <h2 className="text-xl font-bold mb-4 text-center">APIキーを設定</h2>
                             <form onSubmit={handleApiSubmit} className="space-y-4">
-                                <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} className="w-full p-3 border rounded-xl" placeholder="AIキーを入力..." />
-                                <button className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">開始</button>
+                                <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} className="w-full p-3 border rounded-xl outline-none focus:border-blue-500" placeholder="Gemini APIキーを入力..." />
+                                <button className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all">開始</button>
                             </form>
                         </div>
                     </div>
@@ -208,134 +261,224 @@
             }
 
             return (
-                <div className="min-h-screen flex flex-col max-w-[1400px] mx-auto p-4 lg:p-6 gap-6">
-                    <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm">
+                <div className="min-h-screen flex flex-col max-w-[1400px] mx-auto p-4 lg:p-6 gap-6 h-screen overflow-hidden text-slate-800">
+                    <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex-shrink-0">
                         <h1 className="text-xl font-black text-blue-600 flex items-center gap-2">
                             <Icon name="sparkles" /> AI教員評価アシスタント
                         </h1>
-                        <button onClick={() => {if(confirm('初期化するよ？')) {localStorage.clear(); location.reload();}}} className="text-xs text-slate-400 hover:text-red-500">設定リセット</button>
+                        <button onClick={() => {if(confirm('設定をリセットするよ？')) {localStorage.clear(); location.reload();}}} className="text-xs text-slate-400 hover:text-red-500">設定リセット</button>
                     </header>
 
                     <div className="flex flex-col lg:flex-row gap-6 flex-1 overflow-hidden">
                         {/* 左：入力エリア */}
-                        <div className="w-full lg:w-80 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+                        <div className="w-full lg:w-80 space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-shrink-0">
                             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">先生の名前</label>
-                                    <input value={teacherName} onChange={e => setTeacherName(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border focus:border-blue-500 outline-none text-sm" placeholder="山田太郎" />
+                                <div className="pb-4 border-b border-slate-100">
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-widest">対象の先生</label>
+                                    <input 
+                                        value={teacherName} 
+                                        onChange={e => setTeacherName(e.target.value)} 
+                                        className="w-full p-2 bg-slate-50 rounded-lg border focus:border-blue-500 outline-none text-sm font-bold" 
+                                        placeholder="名前を入力" 
+                                    />
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">本年度の目標</label>
-                                    <textarea value={goal} onChange={e => setGoal(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-20 text-sm resize-none" placeholder="ICT活用による効率化" />
+                                
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-blue-600 font-bold text-xs">
+                                        <Icon name="edit-3" size={14}/> {activeCategory}の詳細
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 block mb-1">本年度の目標</label>
+                                        <textarea 
+                                            value={inputState[activeCategory].goal} 
+                                            onChange={e => setInputState(prev => ({...prev, [activeCategory]: {...prev[activeCategory], goal: e.target.value}}))} 
+                                            className="w-full p-2 bg-slate-50 rounded-lg border h-16 text-sm resize-none outline-none focus:border-blue-500" 
+                                            placeholder="目標を入力..." 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 block mb-1">本人の自己評価</label>
+                                        <textarea 
+                                            value={inputState[activeCategory].selfComment} 
+                                            onChange={e => setInputState(prev => ({...prev, [activeCategory]: {...prev[activeCategory], selfComment: e.target.value}}))} 
+                                            className="w-full p-2 bg-slate-50 rounded-lg border h-16 text-sm resize-none outline-none focus:border-blue-500" 
+                                            placeholder="自己評価コメントを入力..." 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-slate-400 block mb-1">必須キーワード</label>
+                                        <input 
+                                            value={inputState[activeCategory].mustInclude} 
+                                            onChange={e => setInputState(prev => ({...prev, [activeCategory]: {...prev[activeCategory], mustInclude: e.target.value}}))} 
+                                            className="w-full p-2 bg-slate-50 rounded-lg border text-sm outline-none focus:border-blue-500" 
+                                            placeholder="含めたい言葉..." 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-amber-600 block mb-1 uppercase tracking-wider">追加の指示</label>
+                                        <input 
+                                            value={inputState[activeCategory].feedback} 
+                                            onChange={e => setInputState(prev => ({...prev, [activeCategory]: {...prev[activeCategory], feedback: e.target.value}}))} 
+                                            className="w-full p-2 bg-amber-50 rounded-lg border border-amber-100 text-sm outline-none focus:border-amber-500" 
+                                            placeholder="例：より具体的に" 
+                                        />
+                                    </div>
+                                    
+                                    <div className="pt-2 border-t border-dashed border-slate-200">
+                                        <label className="text-[10px] font-bold text-indigo-500 block mb-1 uppercase tracking-wider flex items-center gap-1">
+                                            <Icon name="history" size={10} /> 参考（前回の評価など）
+                                        </label>
+                                        <textarea 
+                                            value={inputState[activeCategory].reference} 
+                                            onChange={e => setInputState(prev => ({...prev, [activeCategory]: {...prev[activeCategory], reference: e.target.value}}))} 
+                                            className="w-full p-2 bg-indigo-50 rounded-lg border border-indigo-100 h-16 text-[11px] resize-none outline-none focus:border-indigo-500 text-indigo-900" 
+                                            placeholder="過去の評価文を貼るとそれっぽくなります..." 
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">本人の自己評価</label>
-                                    <textarea value={selfComment} onChange={e => setSelfComment(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border h-24 text-sm resize-none" placeholder="授業での活用を定着させた" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">追加キーワード</label>
-                                    <input value={mustInclude} onChange={e => setMustInclude(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border text-sm" placeholder="柔軟な対応" />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">追加指示（雰囲気など）</label>
-                                    <input value={feedback} onChange={e => setFeedback(e.target.value)} className="w-full p-2 bg-slate-50 rounded-lg border text-sm" placeholder="もう少し情熱的に" />
-                                </div>
-                                <button onClick={generateEval} disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg">
-                                    {loading ? <Icon name="loader-2" className="animate-spin" /> : <Icon name="wand-2" />}
-                                    案を作成する
+
+                                <button onClick={generateEval} disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg active:scale-95 disabled:bg-blue-400">
+                                    {loading ? (
+                                        <>
+                                            <Icon name="loader-2" className="animate-spin" />
+                                            生成中...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Icon name="wand-2" />
+                                            評価を生成する
+                                        </>
+                                    )}
                                 </button>
                                 {error && <p className="text-xs text-red-500 text-center font-bold">{error}</p>}
                             </div>
                         </div>
 
                         {/* 中：プレビュー・編集 */}
-                        <div className="flex-1 flex flex-col gap-4">
-                            {currentData ? (
-                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 flex-1 flex flex-col">
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h2 className="font-bold text-lg text-slate-700">{currentData.name} 先生の所見案</h2>
-                                        <span className="text-xs text-slate-400">{currentData.timestamp}</span>
-                                    </div>
-                                    <div 
-                                        ref={editorRef}
-                                        className="eval-text-area flex-1"
-                                        contentEditable
-                                        onMouseUp={handleSelection}
-                                        onInput={e => {
-                                            const txt = e.target.innerText;
-                                            setResults(prev => prev.map(r => r.id === selectedId ? {...r, currentText: txt} : r));
-                                        }}
-                                        suppressContentEditableWarning={true}
-                                    />
-                                    <div className="mt-4 flex justify-between items-center">
-                                        <p className="text-[10px] text-slate-400">テキストを選択するとAIで言い換えができます</p>
-                                        <div className="text-xs font-bold text-slate-400">
-                                            文字数: <span className={currentData.currentText.length > 200 ? 'text-red-500 font-black' : 'text-blue-600'}>{currentData.currentText.length}</span> / 200
+                        <div className="flex-1 flex flex-col gap-0 overflow-hidden bg-white rounded-3xl shadow-sm border border-slate-100">
+                            <div className="flex border-b flex-shrink-0 bg-slate-50 rounded-t-3xl">
+                                {['教科指導', '生活指導', '公務'].map(cat => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setActiveCategory(cat)}
+                                        className={`tab-btn flex-1 py-4 text-sm font-bold flex items-center justify-center gap-2 ${activeCategory === cat ? 'active' : 'text-slate-400 hover:text-slate-600'}`}
+                                    >
+                                        <Icon name={cat === '教科指導' ? 'book-open' : cat === '生活指導' ? 'heart' : 'briefcase'} size={16} />
+                                        {cat}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="p-6 flex-1 flex flex-col overflow-hidden">
+                                {selectedId ? (
+                                    <div className="flex-1 flex flex-col overflow-hidden">
+                                        <div 
+                                            ref={editorRef}
+                                            className="eval-text-area flex-1 overflow-y-auto custom-scrollbar shadow-inner"
+                                            contentEditable
+                                            onMouseUp={handleSelection}
+                                            onInput={e => {
+                                                const txt = e.target.innerText;
+                                                setResults(prev => prev.map(r => r.id === selectedId ? {
+                                                    ...r, 
+                                                    contents: { ...r.contents, [activeCategory]: txt }
+                                                } : r));
+                                            }}
+                                            suppressContentEditableWarning={true}
+                                        />
+                                        <div className="mt-4 flex justify-between items-center flex-shrink-0 bg-slate-50 p-3 rounded-xl border">
+                                            <p className="text-[10px] text-slate-400 flex items-center gap-1">
+                                                <Icon name="info" size={12}/> 文字を選択してAIで言い換え
+                                            </p>
+                                            <div className="text-xs font-bold">
+                                                <span className="text-slate-400">文字数(句読点込): </span>
+                                                <span className={charCount > 200 ? 'text-red-500 font-black px-2 py-0.5 bg-red-50 rounded' : 'text-blue-600'}>{charCount}</span>
+                                                <span className="text-slate-400"> / 200</span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center border-4 border-dashed rounded-3xl text-slate-300 font-bold bg-white/50">
-                                    <Icon name="file-plus" size={48} className="mb-4 opacity-20" />
-                                    左のフォームを入力して案を作成しよう！
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-300 font-bold text-center">
+                                        <Icon name="user-plus" size={48} className="mb-4 opacity-20" />
+                                        左で名前を入れて評価を生成するか、<br/>右のリストから先生を選択してね。
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
-                        {/* 右：保存済みリスト */}
-                        <div className="w-full lg:w-64 bg-yellow-400 p-4 rounded-3xl shadow-lg flex flex-col border-t-4 border-yellow-500">
-                            <h3 className="text-sm font-black text-yellow-900 mb-4 flex items-center gap-2 uppercase">
-                                <Icon name="users" size={16} /> 保存済みの先生
-                            </h3>
+                        {/* 右：保存済みリスト（黄色） */}
+                        <div className="w-full lg:w-64 bg-yellow-400 p-4 rounded-3xl shadow-lg flex flex-col border-t-4 border-yellow-500 flex-shrink-0 overflow-hidden text-yellow-900">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-sm font-black flex items-center gap-2 uppercase">
+                                    <Icon name="users" size={16} /> 先生一覧
+                                </h3>
+                                <button 
+                                    onClick={resetToInitial}
+                                    className="p-1.5 bg-yellow-500 hover:bg-yellow-600 text-yellow-900 rounded-lg transition-colors border border-yellow-600/20"
+                                    title="新規作成"
+                                >
+                                    <Icon name="plus" size={16} />
+                                </button>
+                            </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
                                 {results.map(res => (
                                     <div 
                                         key={res.id} 
                                         onClick={() => {
                                             setSelectedId(res.id);
-                                            setTeacherName(res.inputData.teacherName);
-                                            setGoal(res.inputData.goal);
-                                            setSelfComment(res.inputData.selfComment);
-                                            setMustInclude(res.inputData.mustInclude);
-                                            setFeedback(res.inputData.feedback);
+                                            setTeacherName(res.name);
+                                            if (res.inputData) setInputState(res.inputData);
                                         }}
                                         className={`sidebar-item p-3 rounded-xl flex items-center justify-between bg-white shadow-sm border-b-2 border-yellow-500/20 ${selectedId === res.id ? 'active' : 'hover:bg-yellow-50'}`}
                                     >
-                                        <span className="text-sm font-bold truncate flex-1">{res.name} 先生</span>
+                                        <div className="flex flex-col flex-1 min-w-0 text-slate-800">
+                                            <span className="text-sm font-bold truncate">{res.name} 先生</span>
+                                            <div className="flex gap-1 mt-1">
+                                                {['教科指導', '生活指導', '公務'].map(c => (
+                                                    <div key={c} className={`w-1.5 h-1.5 rounded-full ${res.contents[c] ? 'bg-green-400' : 'bg-slate-200'}`}></div>
+                                                ))}
+                                            </div>
+                                        </div>
                                         <button 
                                             onClick={(e) => deleteEntry(e, res.id, res.name)}
                                             className={`p-1 rounded-md transition-colors ml-2 ${selectedId === res.id ? 'hover:bg-red-700 text-white' : 'text-yellow-700 hover:bg-red-500 hover:text-white'}`}
-                                            title="削除"
                                         >
                                             <Icon name="x" size={14} />
                                         </button>
                                     </div>
                                 ))}
-                                {results.length === 0 && <p className="text-[10px] text-yellow-900/50 text-center mt-4">履歴はありません</p>}
                             </div>
                         </div>
                     </div>
 
-                    {/* AI修正メニュー（ポップアップ） */}
                     {aiPopup && (
-                        <div className="ai-menu-popup fixed p-2 w-72 shadow-2xl" style={{ top: aiPopup.top + 10, left: aiPopup.left }}>
+                        <div className="ai-menu-popup fixed p-2 w-72 shadow-2xl border-2 border-blue-100" style={{ top: aiPopup.top + 10, left: Math.min(aiPopup.left, window.innerWidth - 300) }}>
                             {!aiPopup.options ? (
                                 <button 
                                     onClick={getSuggestions} 
                                     disabled={isAiSuggesting}
                                     className={`w-full p-3 flex items-center justify-center gap-2 rounded-lg font-bold text-sm transition-all ${isAiSuggesting ? 'bg-slate-100 text-slate-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'}`}
                                 >
-                                    {isAiSuggesting ? <Icon name="loader-2" className="animate-spin" size={14}/> : <Icon name="sparkles" size={14}/>}
-                                    {isAiSuggesting ? 'AIが考え中...' : 'AIで言い換える'}
+                                    {isAiSuggesting ? (
+                                        <>
+                                            <Icon name="loader-2" className="animate-spin" size={14}/>
+                                            修正中...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Icon name="sparkles" size={14}/>
+                                            AIで言い換える
+                                        </>
+                                    )}
                                 </button>
                             ) : (
                                 <div className="space-y-1">
-                                    <div className="text-[9px] text-slate-400 p-2 font-bold border-b mb-1 flex justify-between items-center">
-                                        <span>AIの言い換え提案</span>
+                                    <div className="text-[9px] text-slate-400 p-2 font-bold border-b mb-1 flex justify-between items-center uppercase tracking-widest">
+                                        <span>AIの提案</span>
                                         <button onClick={() => setAiPopup(null)} className="hover:text-red-500"><Icon name="x" size={10}/></button>
                                     </div>
                                     {aiPopup.options.map((opt, i) => (
-                                        <button key={i} onClick={() => applySuggestion(opt)} className="w-full text-left p-2.5 hover:bg-blue-600 hover:text-white rounded-lg text-[11px] font-medium leading-relaxed transition-colors border border-transparent hover:border-blue-700">
+                                        <button key={i} onClick={() => applySuggestion(opt)} className="w-full text-left p-3 hover:bg-blue-600 hover:text-white rounded-lg text-[11px] font-medium leading-relaxed transition-colors border border-transparent">
                                             {opt}
                                         </button>
                                     ))}
