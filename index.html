@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap');
-        body { font-family: 'Noto Sans JP', sans-serif; background-color: #f1f5f9; color: #1e293b; }
+
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f1f5f9;
+            color: #1e293b;
+        }
+
         .editor-area {
             font-size: 1.1rem;
             line-height: 1.8;
@@ -26,23 +33,39 @@
             outline: none;
             transition: all 0.2s;
         }
-        .editor-area:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .editor-area:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+
         .input-group {
             background: #ffffff;
             border-radius: 1rem;
             padding: 1rem;
             border: 1px solid #e2e8f0;
         }
+
         .drop-zone {
             border: 2px dashed #cbd5e1;
             transition: all 0.2s;
         }
-        .drop-zone:hover, .drop-zone.active {
+
+        .drop-zone:hover,
+        .drop-zone.active {
             border-color: #3b82f6;
             background-color: #eff6ff;
         }
+
         .instruction-tag {
             background: #e0f2fe;
             color: #0369a1;
@@ -52,8 +75,24 @@
             font-weight: 700;
             border: 1px solid #bae6fd;
         }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            backdrop-filter: blur(4px);
+        }
     </style>
 </head>
+
 <body>
     <div id="root"></div>
     <script type="text/babel">
@@ -61,25 +100,115 @@
 
         const Icon = ({ name, size = 20, className = "" }) => {
             const iconRef = useRef(null);
+
+            // Helper to convert kebab-case to PascalCase for Lucide icons
+            const pascalName = useMemo(() => {
+                // e.g. 'file-text' -> 'FileText', 'x' -> 'X'
+                return name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+            }, [name]);
+
             useEffect(() => {
-                if (iconRef.current && lucide.icons[name]) {
+                const iconKey = lucide.icons[name] ? name : (lucide.icons[pascalName] ? pascalName : null);
+                if (iconRef.current && iconKey) {
                     const el = iconRef.current;
                     el.innerHTML = '';
                     lucide.createIcons({
-                        icons: { [name]: lucide.icons[name] },
+                        icons: { [iconKey]: lucide.icons[iconKey] },
                         nameAttr: 'data-lucide',
                         attrs: { class: className, width: size, height: size }
                     });
                 }
-            }, [name, size, className]);
+            }, [name, size, className, pascalName]);
+
             return <i ref={iconRef} data-lucide={name} className={className}></i>;
         };
 
+        const ApiKeyModal = ({ isOpen, onClose, currentKey, onSave }) => {
+            const [keyInput, setKeyInput] = useState(currentKey);
+
+            useEffect(() => {
+                setKeyInput(currentKey);
+            }, [currentKey, isOpen]);
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="modal-overlay">
+                    <div className="bg-white p-6 rounded-2xl shadow-2xl w-[400px] max-w-[90vw] animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold flex items-center gap-2">
+                                <Icon name="key" className="text-amber-500" /> APIキー設定
+                            </h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><Icon name="x" /></button>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-4">
+                            Google AI Studioで取得したAPIキーを入力してください。<br />このキーはブラウザにのみ保存され、外部には送信されません。
+                        </p>
+                        <input
+                            type="password"
+                            value={keyInput}
+                            onChange={(e) => setKeyInput(e.target.value)}
+                            className="w-full p-3 border rounded-xl mb-4 text-sm font-mono tracking-wider outline-none focus:border-blue-500"
+                            placeholder="AIzaSy..."
+                        />
+                        <div className="flex justify-end gap-2">
+                            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 font-bold hover:bg-slate-100 rounded-lg">キャンセル</button>
+                            <button onClick={() => onSave(keyInput)} className="px-4 py-2 text-sm bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">保存する</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SheetSelectorModal = ({ isOpen, sheetNames, onSelect, onClose }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="modal-overlay">
+                    <div className="bg-white p-6 rounded-2xl shadow-2xl w-[400px] max-w-[90vw] animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-lg font-bold flex items-center gap-2">
+                                <Icon name="table-2" className="text-blue-500" /> シートを選択
+                            </h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><Icon name="x" /></button>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-4">
+                            読み込むシート（タブ）を選択してください。<br />※古いデータは上書きされます。
+                        </p>
+                        <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar mb-4">
+                            {sheetNames.map((sheet, idx) => (
+                                <button
+                                    key={idx}
+                                    onClick={() => onSelect(sheet)}
+                                    className="p-3 text-left border rounded-xl hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-all font-bold text-sm flex items-center gap-3"
+                                >
+                                    <div className="bg-slate-100 p-2 rounded-lg text-slate-400">
+                                        <Icon name="sheet" size={16} />
+                                    </div>
+                                    {sheet}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex justify-end">
+                            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-500 font-bold hover:bg-slate-100 rounded-lg">キャンセル</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
         const App = () => {
-            const apiKey = "";
+            const [showSheetSelector, setShowSheetSelector] = useState(false);
+            const [sheetNames, setSheetNames] = useState([]);
+            const workbookRef = useRef(null);
+
+            // API Key State Management
+            const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+            const [showApiModal, setShowApiModal] = useState(false);
+
             const [results, setResults] = useState(() => JSON.parse(localStorage.getItem('eval_summary_v3') || '[]'));
             const [selectedId, setSelectedId] = useState(null);
-            
+
             const [teacherName, setTeacherName] = useState('');
             const [inputs, setInputs] = useState({
                 kyoka: { goal: '', self: '' },
@@ -98,6 +227,13 @@
                 localStorage.setItem('eval_summary_v3', JSON.stringify(results));
             }, [results]);
 
+            const saveApiKey = (key) => {
+                setApiKey(key);
+                localStorage.setItem('gemini_api_key', key);
+                setShowApiModal(false);
+                if (key) setError('');
+            };
+
             const currentData = useMemo(() => results.find(r => r.id === selectedId), [results, selectedId]);
             const currentContent = currentData?.content || '';
 
@@ -107,98 +243,258 @@
                 }
             }, [selectedId, currentContent]);
 
-            // Excel Parsing Logic
-            const handleExcelImport = (e) => {
-                const file = e.target.files?.[0] || e.dataTransfer?.files?.[0];
-                if (!file) return;
+            // Sheet Data Extraction Logic (Reusable)
+            const extractDataFromSheet = (worksheet) => {
+                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                let newInputs = { ...inputs };
+                let foundName = '';
+                let matchedCount = 0;
 
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    try {
-                        const data = evt.target.result;
-                        const workbook = XLSX.read(data, { type: 'binary' });
-                        const firstSheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[firstSheetName];
-                        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                        let newInputs = { ...inputs };
-                        let foundName = '';
-
-                        json.forEach(row => {
-                            const rowText = row.join(' ');
-                            if (rowText.includes('氏名') || rowText.includes('名前')) {
-                                foundName = row[1] || row[2] || '';
-                            }
-                            
-                            if (rowText.includes('教科指導')) {
-                                newInputs.kyoka = { goal: row[1] || '', self: row[2] || '' };
-                            } else if (rowText.includes('生活指導') || rowText.includes('生徒指導')) {
-                                newInputs.seikatsu = { goal: row[1] || '', self: row[2] || '' };
-                            } else if (rowText.includes('公務')) {
-                                newInputs.komu = { goal: row[1] || '', self: row[2] || '' };
-                            }
-                        });
-
-                        if (foundName) setTeacherName(foundName);
-                        setInputs(newInputs);
-                        setError('Excelからデータを読み込みました！');
-                        setTimeout(() => setError(''), 3000);
-                    } catch (err) {
-                        setError('Excelの読み込みに失敗したよ。');
-                    }
+                // 補助関数: セルが空でないかチェック
+                const isValidCell = (cell) => {
+                    if (!cell) return false;
+                    const s = cell.toString().trim();
+                    return s.length > 0 && !['b', 'B', 'a', 'A', 'c', 'C'].includes(s); // 評価記号を除外
                 };
+
+                json.forEach((row, rowIndex) => {
+                    const rowStr = row.map(cell => (cell || '').toString().trim()).join(' ');
+
+                    // 名前・氏名の検出
+                    if (!foundName) {
+                        for (let i = 0; i < row.length; i++) {
+                            const cellText = (row[i] || '').toString().replace(/\s+/g, ''); // 空白除去
+                            if (cellText.includes('氏名') || cellText.includes('名前')) {
+                                for (let j = 1; j < 20; j++) {
+                                    if (row[i + j] && isValidCell(row[i + j])) {
+                                        foundName = row[i + j];
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 各項目の検出
+                    const findContentCells = (row) => {
+                        const contents = row.filter(cell => {
+                            const s = (cell || '').toString().trim();
+                            return s.length > 5 && !s.includes('学習指導') && !s.includes('生徒指導') && !s.includes('分掌');
+                        });
+                        return contents;
+                    };
+
+                    // 教科指導
+                    if (rowStr.includes('学習指導') || (rowStr.includes('教科') && !rowStr.includes('分掌'))) {
+                        const contents = findContentCells(row);
+                        if (contents.length >= 1) {
+                            if (contents[0]) newInputs.kyoka.goal = contents[0];
+                            if (contents[1]) newInputs.kyoka.self = contents[1];
+                            matchedCount++;
+                        }
+                    }
+                    // 生徒指導
+                    else if (rowStr.includes('生徒指導') || (rowStr.includes('生活') && !rowStr.includes('分掌'))) {
+                        const contents = findContentCells(row);
+                        if (contents.length >= 1) {
+                            if (contents[0]) newInputs.seikatsu.goal = contents[0];
+                            if (contents[1]) newInputs.seikatsu.self = contents[1];
+                            matchedCount++;
+                        }
+                    }
+                    // 校務分掌
+                    else if (rowStr.includes('分掌') || rowStr.includes('校務') || rowStr.includes('公務')) {
+                        const contents = findContentCells(row);
+                        if (contents.length >= 1) {
+                            if (contents[0]) newInputs.komu.goal = contents[0];
+                            if (contents[1]) newInputs.komu.self = contents[1];
+                            matchedCount++;
+                        }
+                    }
+                });
+
+                if (foundName) setTeacherName(foundName);
+                setInputs(newInputs);
+
+                if (foundName || matchedCount > 0) {
+                    setError(`読み込み完了！ (項目: ${matchedCount}個)`);
+                } else {
+                    setError('項目が見つかりませんでした。');
+                }
+                setTimeout(() => setError(''), 3000);
+            };
+
+            const processExcelData = (data) => {
+                setLoading(true);
+                try {
+                    const workbook = XLSX.read(data, { type: 'binary' });
+
+                    if (workbook.SheetNames.length > 1) {
+                        workbookRef.current = workbook;
+                        setSheetNames(workbook.SheetNames);
+                        setShowSheetSelector(true);
+                        setLoading(false);
+                        return;
+                    }
+
+                    // Single sheet
+                    extractDataFromSheet(workbook.Sheets[workbook.SheetNames[0]]);
+                    setLoading(false);
+                } catch (err) {
+                    console.error(err);
+                    setError('Excelの読み込みに失敗しました。');
+                    setLoading(false);
+                }
+            };
+
+            const handleSheetSelectSubmit = (sheetName) => {
+                setShowSheetSelector(false);
+                if (workbookRef.current) {
+                    setLoading(true);
+                    try {
+                        const worksheet = workbookRef.current.Sheets[sheetName];
+                        extractDataFromSheet(worksheet);
+                    } catch (err) {
+                        setError('シート読み込みエラー');
+                    } finally {
+                        setLoading(false);
+                        workbookRef.current = null;
+                        setSheetNames([]);
+                    }
+                }
+            };
+
+            const handleFileSelect = (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => processExcelData(evt.target.result);
                 reader.readAsBinaryString(file);
             };
 
+            // Drag and Drop Handlers
+            const [isDragging, setIsDragging] = useState(false);
+            const dragCounter = useRef(0);
+
+            const handleDragEnter = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dragCounter.current++;
+                if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+                    setIsDragging(true);
+                }
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dragCounter.current--;
+                if (dragCounter.current === 0) {
+                    setIsDragging(false);
+                }
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragging(false);
+                dragCounter.current = 0;
+
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                    const name = file.name.toLowerCase();
+                    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+                        const reader = new FileReader();
+                        reader.onload = (evt) => processExcelData(evt.target.result);
+                        reader.readAsBinaryString(file);
+                    } else {
+                        setError('Excelファイル(.xlsx, .xls)のみ対応しています。');
+                    }
+                }
+            };
+
+            useEffect(() => {
+                window.addEventListener('dragenter', handleDragEnter);
+                window.addEventListener('dragleave', handleDragLeave);
+                window.addEventListener('dragover', handleDragOver);
+                window.addEventListener('drop', handleDrop);
+                return () => {
+                    window.removeEventListener('dragenter', handleDragEnter);
+                    window.removeEventListener('dragleave', handleDragLeave);
+                    window.removeEventListener('dragover', handleDragOver);
+                    window.removeEventListener('drop', handleDrop);
+                };
+            }, [inputs]); // inputs依存は避けるべきだが簡易実装
+
             const generateSummary = async () => {
+                if (!apiKey) {
+                    setError('APIキーが設定されていません。右上の鍵アイコンから設定してください。');
+                    setShowApiModal(true);
+                    return;
+                }
+
                 setLoading(true);
                 setError('');
 
                 // 過去の指示を累積させる
                 const historyInstructions = currentData?.instructionHistory || [];
-                const allInstructions = inputs.instruction 
-                    ? [inputs.instruction, ...historyInstructions] 
+                const allInstructions = inputs.instruction
+                    ? [inputs.instruction, ...historyInstructions]
                     : historyInstructions;
 
                 const system = `教員評価の要約専門家です。提示される3項目（教科指導、生活指導、公務）の目標と自己評価を統合し、活動内容を客観的に要約してください。
                 
-【厳守ルール】
-1. 文字数：180文字以上、200文字以内。
+【最重要・厳守ルール】
+1. 文字数：【180文字程度】で簡潔にまとめること。200文字は絶対に超えてはならない。
 2. 内容：目標に対する取り組みの事実をまとめる。
-3. 禁止事項：賞賛・感想は排除し、客観的事実のみを記述。
+3. 禁止事項①：主観的な賞賛・感想は排除し、客観的事実のみを記述。
 4. 文体：自然な「だ・である」調。主語は省く。
-5. 出力：本文のみ。
+5. 出力：本文のみ。挨拶や前置きは一切不要。
+6. 禁止事項②：末尾に「（198文字）」のような文字数カウントを含めることは【完全に禁止】です。評価が下がります。
 
 【追加の修正指示（下に行くほど古いです。すべて反映してください）】
 ${allInstructions.join('\n')}`;
 
-                const prompt = `以下の情報を180-200字で要約せよ。
+                const prompt = `以下の情報を【180文字程度】で要約せよ。200文字以内厳守。文末の文字数表記は不要。
 【教科指導】目標:${inputs.kyoka.goal} / 自己評価:${inputs.kyoka.self}
 【生活指導】目標:${inputs.seikatsu.goal} / 自己評価:${inputs.seikatsu.self}
 【公務】目標:${inputs.komu.goal} / 自己評価:${inputs.komu.self}`;
 
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-                    
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
+
                     const response = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             contents: [{ parts: [{ text: prompt }] }],
                             systemInstruction: { parts: [{ text: system }] }
+                            // generationConfig は一旦削除
                         })
                     });
-                    
-                    if (!response.ok) throw new Error();
+
                     const data = await response.json();
-                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+                    if (!response.ok) {
+                        console.error(data);
+                        throw new Error(data.error?.message || 'API Error');
+                    }
+
+                    const textRaw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+                    // 強制的に文字数表記を削除（全角・半角括弧に対応）
+                    const text = textRaw.replace(/[（(][0-9０-９]+文字[)）]$/, '').trim();
 
                     const newId = selectedId || Date.now().toString();
-                    
+
                     setResults(prev => {
                         const existing = prev.find(r => r.id === newId);
                         const filtered = prev.filter(r => r.id !== newId);
-                        
+
                         // 履歴の更新
                         const newSummaryHistory = existing ? [
                             { content: existing.content, timestamp: existing.timestamp }
@@ -213,16 +509,17 @@ ${allInstructions.join('\n')}`;
                             history: newSummaryHistory,
                             timestamp: new Date().toLocaleString('ja-JP')
                         };
-                        
+
                         return [newEntry, ...filtered];
                     });
-                    
+
                     setSelectedId(newId);
-                    setInputs(prev => ({...prev, instruction: ''})); // 入力欄をリセット
+                    setInputs(prev => ({ ...prev, instruction: '' })); // 入力欄をリセット
                     if (editorRef.current) editorRef.current.innerText = text;
 
                 } catch (err) {
-                    setError('生成に失敗したよ。APIキーなどを確認してね。');
+                    setError('生成に失敗したよ。APIキーが正しいか確認してね。');
+                    if (err.message.includes('API key')) setShowApiModal(true);
                 } finally {
                     setLoading(false);
                 }
@@ -231,7 +528,7 @@ ${allInstructions.join('\n')}`;
             const loadResult = (res) => {
                 setSelectedId(res.id);
                 setTeacherName(res.name);
-                setInputs({...res.inputs, instruction: ''});
+                setInputs({ ...res.inputs, instruction: '' });
             };
 
             const handleCopy = (textToCopy) => {
@@ -248,21 +545,42 @@ ${allInstructions.join('\n')}`;
 
             return (
                 <div className="max-w-[1400px] mx-auto h-screen flex flex-col p-4 gap-4 overflow-hidden">
+                    {/* Drag Override Overlay */}
+                    {isDragging && (
+                        <div className="fixed inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex items-center justify-center border-4 border-blue-500 border-dashed m-4 rounded-3xl pointer-events-none">
+                            <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center animate-bounce">
+                                <Icon name="file-down" size={48} className="text-blue-600 mb-4" />
+                                <h2 className="text-2xl font-black text-blue-700">Excelファイルをドロップ</h2>
+                                <p className="text-blue-500 font-bold">自動で解析して入力します</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <ApiKeyModal isOpen={showApiModal} onClose={() => setShowApiModal(false)} currentKey={apiKey} onSave={saveApiKey} />
+                    <SheetSelectorModal isOpen={showSheetSelector} sheetNames={sheetNames} onSelect={handleSheetSelectSubmit} onClose={() => { setShowSheetSelector(false); setSheetNames([]); workbookRef.current = null; }} />
+
                     <header className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                         <div className="flex items-center gap-3">
                             <div className="bg-blue-600 p-2 rounded-lg text-white">
                                 <Icon name="file-text" size={24} />
                             </div>
-                            <h1 className="text-xl font-bold tracking-tight">教員活動要約アシスタント <span className="text-xs font-normal text-slate-400 ml-2">v2.1 Cumulative Logic</span></h1>
+                            <h1 className="text-xl font-bold tracking-tight">教員活動要約アシスタント <span className="text-xs font-normal text-slate-400 ml-2">v2.4 Smart Import</span></h1>
                         </div>
                         <div className="flex items-center gap-2">
-                            <div 
+                            <button
+                                onClick={() => setShowApiModal(true)}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border ${apiKey ? 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50' : 'bg-amber-50 text-amber-600 border-amber-200 animate-pulse'}`}
+                            >
+                                <Icon name="key" size={16} className={apiKey ? "text-slate-400" : "text-amber-500"} />
+                                {apiKey ? 'APIキー設定済み' : 'APIキーを設定する'}
+                            </button>
+                            <div
                                 onClick={() => fileInputRef.current?.click()}
                                 className="drop-zone px-4 py-2 rounded-xl text-xs font-bold text-slate-500 cursor-pointer flex items-center gap-2 bg-slate-50"
                             >
                                 <Icon name="file-up" size={16} className="text-blue-500" />
                                 Excel読み込み
-                                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleExcelImport} />
+                                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleFileSelect} />
                             </div>
                         </div>
                     </header>
@@ -272,7 +590,7 @@ ${allInstructions.join('\n')}`;
                         <div className="w-1/4 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
                             <div className="input-group">
                                 <label className="text-[10px] font-bold text-slate-400 mb-2 block uppercase tracking-widest">対象の先生</label>
-                                <input 
+                                <input
                                     value={teacherName}
                                     onChange={e => setTeacherName(e.target.value)}
                                     className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-blue-500"
@@ -282,27 +600,27 @@ ${allInstructions.join('\n')}`;
 
                             <div className="input-group space-y-4">
                                 <SectionTitle icon="book-open" title="教科指導" color="text-blue-500" />
-                                <InputSet data={inputs.kyoka} onChange={(d) => setInputs(prev => ({...prev, kyoka: d}))} />
+                                <InputSet data={inputs.kyoka} onChange={(d) => setInputs(prev => ({ ...prev, kyoka: d }))} />
                                 <SectionTitle icon="heart" title="生活指導" color="text-rose-500" />
-                                <InputSet data={inputs.seikatsu} onChange={(d) => setInputs(prev => ({...prev, seikatsu: d}))} />
+                                <InputSet data={inputs.seikatsu} onChange={(d) => setInputs(prev => ({ ...prev, seikatsu: d }))} />
                                 <SectionTitle icon="briefcase" title="公務" color="text-amber-500" />
-                                <InputSet data={inputs.komu} onChange={(d) => setInputs(prev => ({...prev, komu: d}))} />
+                                <InputSet data={inputs.komu} onChange={(d) => setInputs(prev => ({ ...prev, komu: d }))} />
                             </div>
 
                             <div className="input-group border-blue-200 bg-blue-50/50 ring-2 ring-blue-500/10">
                                 <label className="text-[10px] font-bold text-blue-600 mb-2 block uppercase tracking-widest flex items-center gap-1">
-                                    <Icon name="message-circle-plus" size={12}/> さらに追加の指示を出す
+                                    <Icon name="message-circle-plus" size={12} /> さらに追加の指示を出す
                                 </label>
-                                <textarea 
+                                <textarea
                                     value={inputs.instruction}
-                                    onChange={e => setInputs(prev => ({...prev, instruction: e.target.value}))}
+                                    onChange={e => setInputs(prev => ({ ...prev, instruction: e.target.value }))}
                                     className="w-full p-3 bg-white border border-blue-200 rounded-xl text-sm h-24 outline-none focus:border-blue-400 shadow-inner"
                                     placeholder="例：もっとICTの具体的なアプリ名を盛り込んで..."
                                 />
                                 <p className="text-[9px] text-blue-400 mt-2 font-medium">※生成すると、これまでの指示に蓄積されます</p>
                             </div>
 
-                            <button 
+                            <button
                                 onClick={generateSummary}
                                 disabled={loading}
                                 className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
@@ -329,7 +647,7 @@ ${allInstructions.join('\n')}`;
                                                 {editorRef.current?.innerText.length || 0} 文字
                                             </span>
                                         </div>
-                                        <button 
+                                        <button
                                             onClick={() => handleCopy()}
                                             className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${copyFeedback ? 'bg-green-500 text-white' : 'bg-slate-900 text-white hover:bg-black'}`}
                                         >
@@ -346,9 +664,19 @@ ${allInstructions.join('\n')}`;
                                         </span>
                                         <div className="flex flex-wrap gap-2">
                                             {currentData.instructionHistory.map((inst, idx) => (
-                                                <div key={idx} className="instruction-tag shadow-sm animate-in fade-in slide-in-from-top-1">
-                                                    {inst}
-                                                    {idx === 0 && <span className="ml-2 text-[8px] bg-blue-500 text-white px-1 rounded-sm">NEW</span>}
+                                                <div key={idx} className="instruction-tag shadow-sm animate-in fade-in slide-in-from-top-1 flex items-center gap-2 group">
+                                                    <span>{inst}</span>
+                                                    {idx === 0 && <span className="text-[8px] bg-blue-500 text-white px-1 rounded-sm">NEW</span>}
+                                                    <button
+                                                        onClick={() => {
+                                                            const newHist = currentData.instructionHistory.filter((_, i) => i !== idx);
+                                                            setResults(prev => prev.map(r => r.id === selectedId ? { ...r, instructionHistory: newHist } : r));
+                                                        }}
+                                                        className="ml-1 text-blue-300 hover:text-red-500 hover:bg-red-50 rounded-full p-0.5 transition-colors"
+                                                        title="この指示を削除"
+                                                    >
+                                                        <Icon name="x" size={12} />
+                                                    </button>
                                                 </div>
                                             ))}
                                         </div>
@@ -356,13 +684,13 @@ ${allInstructions.join('\n')}`;
                                 )}
 
                                 <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
-                                    <div 
+                                    <div
                                         ref={editorRef}
                                         contentEditable
                                         onBlur={() => {
                                             if (selectedId) {
                                                 const txt = editorRef.current.innerText;
-                                                setResults(prev => prev.map(r => r.id === selectedId ? {...r, content: txt} : r));
+                                                setResults(prev => prev.map(r => r.id === selectedId ? { ...r, content: txt } : r));
                                             }
                                         }}
                                         className="editor-area shadow-inner"
@@ -383,7 +711,7 @@ ${allInstructions.join('\n')}`;
                                         {currentData.history.map((h, i) => (
                                             <div key={i} className="min-w-[320px] bg-white rounded-xl border border-slate-200 shadow-sm p-3 text-xs flex flex-col">
                                                 <div className="flex justify-between items-center mb-2 text-slate-400 font-bold border-b pb-1">
-                                                    <span>{i === 0 ? '前回' : i === 1 ? '前々回' : `${i+1}個前`}</span>
+                                                    <span>{i === 0 ? '前回' : i === 1 ? '前々回' : `${i + 1}個前`}</span>
                                                     <span>{h.content.length}文字</span>
                                                 </div>
                                                 <div className="flex-1 overflow-y-auto italic text-slate-500 custom-scrollbar leading-relaxed">
@@ -403,31 +731,52 @@ ${allInstructions.join('\n')}`;
                                     <Icon name="users" size={14} /> 作成済みの先生
                                 </h3>
                                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
-                                    <button 
-                                        onClick={() => { setSelectedId(null); setTeacherName(''); setInputs({kyoka:{goal:'',self:''},seikatsu:{goal:'',self:''},komu:{goal:'',self:''},instruction:''}); if(editorRef.current) editorRef.current.innerText=''; }}
+                                    <button
+                                        onClick={() => { setSelectedId(null); setTeacherName(''); setInputs({ kyoka: { goal: '', self: '' }, seikatsu: { goal: '', self: '' }, komu: { goal: '', self: '' }, instruction: '' }); if (editorRef.current) editorRef.current.innerText = ''; }}
                                         className="w-full p-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-[11px] font-black hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50 transition-all mb-2"
                                     >
                                         + 新規追加
                                     </button>
+                                    {/* Teacher List Item */}
                                     {results.map(res => (
-                                        <div 
+                                        <div
                                             key={res.id}
                                             onClick={() => loadResult(res)}
-                                            className={`p-3 rounded-xl cursor-pointer border-l-4 transition-all ${selectedId === res.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-slate-50 border-transparent hover:bg-slate-100'}`}
+                                            className={`group relative p-3 rounded-xl cursor-pointer border-l-4 transition-all ${selectedId === res.id ? 'bg-blue-50 border-blue-500 shadow-sm' : 'bg-slate-50 border-transparent hover:bg-slate-100'}`}
                                         >
-                                            <div className="text-sm font-bold truncate text-slate-700">{res.name} 先生</div>
+                                            <div className="text-sm font-bold truncate text-slate-700 pr-6">{res.name} 先生</div>
                                             <div className="text-[9px] text-slate-400 mt-1 flex justify-between">
                                                 <span>指示: {res.instructionHistory?.length || 0}件</span>
                                                 <span>{res.timestamp.split(' ')[0]}</span>
                                             </div>
+
+                                            {/* Delete Button (Red X) */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (confirm(`${res.name}先生のデータを削除しますか？`)) {
+                                                        setResults(prev => prev.filter(r => r.id !== res.id));
+                                                        if (selectedId === res.id) {
+                                                            setSelectedId(null);
+                                                            setTeacherName('');
+                                                            setInputs({ kyoka: { goal: '', self: '' }, seikatsu: { goal: '', self: '' }, komu: { goal: '', self: '' }, instruction: '' });
+                                                            if (editorRef.current) editorRef.current.innerText = '';
+                                                        }
+                                                    }
+                                                }}
+                                                className={`absolute top-2 right-2 p-1.5 rounded-full text-red-500 bg-white border border-red-100 shadow-sm hover:bg-red-50 transition-all z-10 ${selectedId === res.id ? 'opacity-100' : 'opacity-100'}`}
+                                                title="削除"
+                                            >
+                                                <Icon name="x" size={14} />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
-                                <button 
-                                    onClick={() => {if(confirm('全データ消去？')) {localStorage.removeItem('eval_summary_v3'); setResults([]);}}}
+                                <button
+                                    onClick={() => { if (confirm('全データ消去？')) { localStorage.removeItem('eval_summary_v3'); setResults([]); } }}
                                     className="mt-4 pt-4 border-t text-[9px] text-slate-300 hover:text-red-400 transition-colors font-bold text-center"
                                 >
-                                    データ初期化
+                                    全データ初期化
                                 </button>
                             </div>
                         </div>
@@ -444,15 +793,15 @@ ${allInstructions.join('\n')}`;
 
         const InputSet = ({ data, onChange }) => (
             <div className="space-y-1">
-                <input 
+                <input
                     value={data.goal}
-                    onChange={e => onChange({...data, goal: e.target.value})}
+                    onChange={e => onChange({ ...data, goal: e.target.value })}
                     className="w-full p-2 bg-slate-50 border rounded-lg text-xs outline-none focus:border-blue-400"
                     placeholder="目標..."
                 />
-                <textarea 
+                <textarea
                     value={data.self}
-                    onChange={e => onChange({...data, self: e.target.value})}
+                    onChange={e => onChange({ ...data, self: e.target.value })}
                     className="w-full p-2 bg-slate-50 border rounded-lg text-xs h-14 resize-none outline-none focus:border-blue-400"
                     placeholder="成果・自己評価..."
                 />
@@ -463,4 +812,5 @@ ${allInstructions.join('\n')}`;
         root.render(<App />);
     </script>
 </body>
+
 </html>
