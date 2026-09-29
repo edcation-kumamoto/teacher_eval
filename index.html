@@ -468,25 +468,42 @@ ${allInstructions.join('\n')}`;
                 try {
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent`;
 
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'x-goog-api-key': apiKey
-                        },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
-                            systemInstruction: { parts: [{ text: system }] }
-                            // generationConfig は一旦削除
-                        })
-                    });
+                    // 自動リトライ（最大3回・指数バックオフ）
+                    let response;
+                    const maxRetries = 3;
+                    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                        response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-goog-api-key': apiKey
+                            },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: prompt }] }],
+                                systemInstruction: { parts: [{ text: system }] }
+                            })
+                        });
+
+                        if (response.status === 503 && attempt < maxRetries) {
+                            const waitSec = attempt * 2;
+                            setError(`サーバーが混雑中です。${waitSec}秒後に再試行... (${attempt}/${maxRetries})`);
+                            await new Promise(r => setTimeout(r, waitSec * 1000));
+                            setError('');
+                            continue;
+                        }
+                        break;
+                    }
 
                     const data = await response.json();
 
                     if (!response.ok) {
                         console.error(data);
+                        if (response.status === 503) {
+                            throw new Error('サーバーが混雑しています。少し時間をおいてから再試行してください。');
+                        }
                         throw new Error(data.error?.message || 'API Error');
                     }
+
 
                     const textRaw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
                     // 強制的に文字数表記を削除（全角・半角括弧に対応）
@@ -567,7 +584,7 @@ ${allInstructions.join('\n')}`;
                             <div className="bg-blue-600 p-2 rounded-lg text-white">
                                 <Icon name="file-text" size={24} />
                             </div>
-                            <h1 className="text-xl font-bold tracking-tight">教員活動要約アシスタント <span className="text-xs font-normal text-slate-400 ml-2">v2.4 Smart Import</span></h1>
+                            <h1 className="text-xl font-bold tracking-tight">教員活動要約アシスタント <span className="text-xs font-normal text-slate-400 ml-2">v2.4 Smart Import</span><span className="text-[9px] font-normal text-slate-300 ml-2">更新: 2026/09/28 18:32</span></h1>
                         </div>
                         <div className="flex items-center gap-2">
                             <button
